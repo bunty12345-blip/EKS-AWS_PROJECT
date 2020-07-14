@@ -1,0 +1,15 @@
+// Helm charts :
+
+# helm init
+# helm repo add stable https://kubernetes-charts.storage.googleapis.com/
+
+# helm repo list
+# helm repo update
+
+// Tiller is the server program connected to helm
+
+# kubectl -n kube-system create serviceaccount tiller
+# kubectl create clusterrolebinding tiller --clusterrole cluster-admin -- serviceaccount=kube-system
+# helm init --service-account tiller
+# helm init --service-account tiller --upgrade
+# helm install stable/mysql
