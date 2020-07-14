@@ -8,4 +8,4 @@ return [
 
                'ONEDRIVE_REDIRECT_URI' => 'https://builder.honeycode.aws/redirect.php',
 ];
-
+?>
