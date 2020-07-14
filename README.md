@@ -776,3 +776,574 @@ kubectl get pvc   //shows persistent volume claims that are created
 Here External Load Balancer IP is used in this environment.
 
 
+Terraform code to launch fargate cluster:
+
+locals {
+ 
+  tags = merge(
+  
+    var.tags,
+    
+    	 {
+    
+      		"kubernetes.io/cluster/${var.cluster_name}" = "owned"
+         }
+  
+    )
+
+  }
+
+module "label" {
+  
+  source     = "git::https://github.com/cloudposse/terraform-null-label.git?ref=tags/0.16.0"
+  
+  namespace  = var.namespace
+  
+  stage      = var.stage
+  
+  name       = var.name
+  
+  delimiter  = var.delimiter
+  
+  attributes = compact(concat(var.attributes, ["fargate"]))
+  
+  tags       = local.tags
+  
+  enabled    = var.enabled
+
+}
+
+data "aws_iam_policy_document" "assume_role" {
+  
+  count = var.enabled ? 1 : 0
+
+  statement {
+  
+      effect  = "Allow"
+    
+      actions = ["sts:AssumeRole"]
+
+    
+    principals {
+    
+      type        = "Service"
+      
+      identifiers = ["eks-fargate-pods.amazonaws.com"]
+    
+    }
+  
+  }
+
+}
+
+resource "aws_iam_role" "default" {
+
+  count              = var.enabled ? 1 : 0
+  
+  name               = module.label.id
+  
+  assume_role_policy = join("", data.aws_iam_policy_document.assume_role.*.json)
+  
+  tags               = module.label.tags
+
+}
+
+resource "aws_iam_role_policy_attachment" "amazon_eks_fargate_pod_execution_role_policy" {
+
+  count      = var.enabled ? 1 : 0
+  
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
+  
+  role       = join("", aws_iam_role.default.*.name)
+
+}
+
+resource "aws_eks_fargate_profile" "default" {
+
+  count                  = var.enabled ? 1 : 0
+  
+  cluster_name           = var.cluster_name
+  
+  fargate_profile_name   = module.label.id
+  
+  pod_execution_role_arn = join("", aws_iam_role.default.*.arn)
+  
+  subnet_ids             = var.subnet_ids
+  
+  tags                   = module.label.tags
+
+  selector {
+  
+    namespace = var.kubernetes_namespace
+    
+    labels    = var.kubernetes_labels
+  
+  }
+
+}
+
+Tags used for instance creation and security groups yaml file:
+
+module "eg_prod_bastion_abc_label" {
+ 
+  source     = "git::https://github.com/cloudposse/terraform-null-label.git?ref=master"
+  
+  namespace  = "eg"
+  
+  stage      = "prod"
+  
+  name       = "bastion"
+  
+  attributes = ["abc"]
+  
+  delimiter  = "-"
+
+  tags = {
+  
+    "BusinessUnit" = "XYZ",
+    
+    "Snapshot"     = "true"
+  
+  }
+
+}
+
+resource "aws_security_group" "eg_prod_bastion_abc" {
+
+  name = module.eg_prod_bastion_abc_label.id
+  
+  tags = module.eg_prod_bastion_abc_label.tags
+  
+  ingress {
+  
+    from_port   = 22
+    
+    to_port     = 22
+    
+    protocol    = "tcp"
+    
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+ }
+  
+}
+
+resource "aws_instance" "eg_prod_bastion_abc" {
+ 
+   instance_type          = "t1.micro"
+   
+   tags                   = module.eg_prod_bastion_abc_label.tags
+   
+   vpc_security_group_ids = [aws_security_group.eg_prod_bastion_abc.id]
+
+}
+
+module "eg_prod_bastion_xyz_label" {
+
+  source     = "git::https://github.com/cloudposse/terraform-null-label.git?ref=master"
+  
+  namespace  = "eg"
+  
+  stage      = "prod"
+  
+  name       = "bastion"
+  
+  attributes = ["xyz"]
+  
+  delimiter  = "-"
+
+  tags = {
+  
+    "BusinessUnit" = "XYZ",
+    
+    "Snapshot"     = "true"
+  
+  }
+
+}
+
+resource "aws_security_group" "eg_prod_bastion_xyz" {
+
+  name = module.eg_prod_bastion_xyz_label.id
+  
+  tags = module.eg_prod_bastion_xyz_label.tags
+  
+  ingress {
+  
+    from_port   = 22
+    
+    to_port     = 22
+    
+    protocol    = "tcp"
+    
+    cidr_blocks = ["0.0.0.0/0"] 
+  
+  }
+
+}
+
+resource "aws_instance" "eg_prod_bastion_xyz" {
+
+   instance_type          = "t1.micro"
+   
+   tags                   = module.eg_prod_bastion_xyz_label.tags
+   
+   vpc_security_group_ids = [aws_security_group.eg_prod_bastion_xyz.id]
+
+}
+
+Automated testing for KUBERNETES and HELM charts using Terratest:
+
+The templates/pod.yaml file includes a template for a single pod that deploys container and exposes port 80:
+
+apiVersion: v1
+
+kind: Pod
+
+metadata: 
+
+     name: {{ include "minimal-pod.fullname". }}
+     
+		 labels:
+     
+		    app.kubernetes.io/name: {{ include "minimal-pod.name" . }}
+        
+				helm.sh/chart: {{ include "minimal-pod.chart" . }}
+        
+				app.kubernetes.io/instance: {{ .Release.Name }}
+        
+				app.kubernetes.io/managed-by: {{ .Release.Service }}
+
+spec:
+
+   containers:
+   
+	  - name: {{ .Chart.Name }}
+    
+		  image: "{{ .Values.image }}"
+      
+			ports:
+      
+			  - name: http
+        
+				  containerPort: 80
+          
+					protocol: TCP     
+
+Function for Template Testing using Terratest: 
+
+func TestPodTemplateRendersContainerImage(t *testing.T) {
+
+    // Path to the helm chart we will test
+    
+	helmChartPath := "../charts/minimal-pod"
+    
+	// Setup the args.
+    
+	// For this test, we will set the following input values:
+    
+	// - image=nginx:1.15.8
+    
+	options := &helm.Options{
+    
+	    SetValues: map[string]string{"image": "nginx:1.15.8"},
+    
+	}
+    
+	// Run RenderTemplate to render the template
+    
+	// and capture the output.
+    
+	output := helm.RenderTemplate(
+    
+	     t, options, helmChartPath, "nginx",
+        
+		 []string{"templates/pod.yaml"})
+    
+	// Now we use kubernetes/client-go library to render the
+    
+	// template output into the Pod struct. This will
+    
+	// ensure the Pod resource is rendered correctly.
+    
+	var pod corev1.Pod
+    
+	helm.UnmarshalK8SYaml(t, output, &pod)
+    
+	// Finally, we verify the pod spec is set to the expected 
+    
+	// container image value
+    
+	expectedContainerImage := "nginx:1.15.8"
+    
+	podContainers := pod.Spec.Containers
+    
+	if podContainers[0].Image != expectedContainerImage {
+    
+	     t.Fatalf(
+         
+		     "Rendered container image (%s) is not expected (%s)",
+            
+			  podContainers[0].Image,
+            
+			  expectedContainerImage,
+        
+		)
+    
+	}
+
+}
+
+Putting this in a file named minimal_pod_template_test.go and run this file we will get the following output:
+
+=== RUN   TestPodTemplateRendersContainerImage
+
+Running command helm with args [template --set image=nginx:1.15.8 --show-only templates/pod.yaml nginx ../charts/minimal-pod]
+
+---
+
+# Source: minimal-pod/templates/pod.yaml
+
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: nginx-minimal-pod
+  
+	labels:
+  
+	  app.kubernetes.io/name: minimal-pod
+    
+		helm.sh/chart: minimal-pod-0.1.0
+    
+		app.kubernetes.io/instance: nginx
+    
+		app.kubernetes.io/managed-by: Helm
+
+spec:
+
+   containers:
+   
+	   - name: minimal-pod
+     
+		   image: "nginx:1.15.8"
+      
+			 ports:
+       
+			   - name: http
+         
+				   containerPort: 80
+          
+					 protocol: TCP
+
+--- PASS: TestPodTemplateRendersContainerImage (0.05s)
+
+PASS
+
+ok      github.com/gruntwork-io/helm-chart-testing-example/test 0.086s
+
+
+HOSTING NEXT CLOUD WEBSITE USING USER_SQL DATABASE :
+
+NEXT CLOUD USER SQL AUTHENTICATION :
+
+Here use external database as a source for Next Cloud users. Retreive the users info and allow the users to change their passwords. Sync the user's email addresses with the 
+
+addresses stored by Next Cloud.
+
+Getting Started:
+
+1. SSH into your server.
+
+2. Get into the apps folder of your Nextcloud installation, for example /var/www/nextcloud/apps.
+
+3. Git clone this project: git clone https://github.com/nextcloud/user_sql.git.
+
+4. Login to your Nextcloud instance as admin.
+
+5. Navigate to Apps from the menu then find and enable the User and Group SQL Backends app.
+
+6. Navigate to Admin from menu and switch to Additional Settings, scroll down the page and you will see SQL Backends settings.
+
+ INTEGRATING INTO USER TABLES:
+ 
+ CREATE TABLE sql_user
+
+(
+
+  uid            INT         PRIMARY KEY AUTO_INCREMENT,
+  
+	username       VARCHAR(16) NOT NULL UNIQUE,
+  
+	display_name   TEXT        NULL,
+  
+	email          TEXT        NULL,
+  
+	quota          TEXT        NULL,
+  
+	home           TEXT        NULL,
+  
+	password       TEXT        NOT NULL,
+  
+	active         TINYINT(1)  NOT NULL DEFAULT '1',
+  
+	disabled       TINYINT(1)  NOT NULL DEFAULT '0',
+  
+	provide_avatar BOOLEAN     NOT NULL DEFAULT FALSE,
+  
+	salt           TEXT        NULL
+
+);
+
+CREATE TABLE sql_group
+
+(
+
+  gid   INT         PRIMARY KEY AUTO_INCREMENT,
+  
+	name  VARCHAR(16) NOT NULL UNIQUE,
+  
+	admin BOOLEAN     NOT NULL DEFAULT FALSE
+
+);
+
+CREATE TABLE sql_user_group
+
+(
+
+  uid INT NOT NULL,
+  
+	gid INT NOT NULL,
+  
+	PRIMARY KEY (uid, gid),
+  
+	FOREIGN KEY (uid) REFERENCES sql_user (uid),
+  
+	FOREIGN KEY (gid) REFERENCES sql_group (gid),
+  
+	INDEX user_group_username_idx (uid),
+  
+	INDEX user_group_group_name_idx (gid)
+
+);
+
+NEXT CLOUD LOGIN FLOW:
+
+The client should open a webview to :
+
+<server>/index.php/login/flow
+
+Set the OCS-APIREQUEST header to true.
+
+Get the login credentials:
+
+nc://login/server:<server>&user:<loginname>&password:<password>
+
+Also username can be fetched from OCS API endpoint:
+
+<server>/ocs/v1.php/cloud/user
+
+Convert to app password:
+
+curl -u  username:password -H 'OCS-APIRequest: true' https://cloud.flare.com/ocs/v2.php/core/getapppassword
+
+<?xml version="1.0"?>
+
+<ocs>
+
+   <meta>
+	
+	    <status>ok</status>
+		
+		<statuscode>200</statuscode>
+		
+		<message>OK</message>
+	
+	</meta>
+	
+	<data>
+	
+	     <apppassword>M1DqHwuZWwjEC3ku7gJsspR7bZXopwf01kj0XGppYVzEkGtbZBRaXlOUxFZdbgJ6Zk9OwG9x</apppassword>
+	
+	</data>
+
+</ocs>
+
+Deleting app password:
+
+curl -u username:app-password -X DELETE -H 'OCS-APIREQUEST: true'  http://localhost/ocs/v2.php/core/apppassword
+
+The response should be a plain OCS response with status code 200
+
+<?xml version="1.0"?>
+<ocs>
+
+    <meta>
+	
+	     <data>
+		
+		      <status>ok</status>
+			
+			  <statuscode>200</statuscode>
+			
+			  <message>OK</message>
+		
+		 </data>
+	
+	</meta>
+
+</ocs>
+
+Login flow v2:
+
+To initiate a login an annonymous POST request is done:
+
+curl -X POST https://cloud.example.com/index.php/login/v2
+
+json object code:
+
+{
+
+ "poll":{
+  
+        "token":"mQUYQdffOSAMJYtm8pVpkOsVqXt5hglnuSpO5EMbgJMNEPFGaiDe8OUjvrJ2WcYcBSLgqynu9jaPFvZHMl83ybMvp6aDIDARjTFIBpRWod6p32fL9LIpIStvc6k8Wrs1",
+
+        "endpoint":"https:///cloud.flare.com\/login\/v2\/poll"
+    
+	},
+    "login":"https:///cloud.flare.com\/login\/v2\/flow\/guyjGtcKPTKCi4epIRIupIexgJ8wNInMFSfHabACRPZUkmEaWZSM54bFkFuzWksbps7jmTFQjeskLpyJXyhpHlgK8sZBn9HXLXjohIx5iXgJKdOkkZTYCzUWHlsg3YFg"
+
+}
+
+URL login should be opened in default browser : where user will follow the login procedure:
+
+curl -X POST https://cloud.example.com/login/v2/poll -d 
+"token=mQUYQdffOSAMJYtm8pVpkOsVqXt5hglnuSpO5EMbgJMNEPFGaiDe8OUjvrJ2WcYcBSLgqynu9jaPFvZHMl83ybMvp6aDIDARjTFIBpRWod6p32fL9LIpIStvc6k8Wrs1"
+
+This will return a 404 status code error until authentication is done.
+
+Once a 200 is returned it is another json object.
+
+{
+
+    "server":"https:///cloud.example.com",
+    
+	"loginName":"username",
+    
+	"appPassword":"yKTVA4zgxjfivy52WqD8kW3M2pKGQr6srmUXMipRdunxjPFripJn0GMfmtNOqOolYSuJ6sCN"
+
+}
+ 
+Use the server and provided credentials to connect. Note that only 200 will only be returned once.
+
+NEXT CLOUD INTEGRATION WITH WORDPRESS:
+
+User table: wp_users
+
+Username column: user_login
+
+Password column: user_pass
+
+Hash algorithm : Unix (Crypt) or Portable PHP password
