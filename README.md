@@ -77,39 +77,6 @@ To create a  basic cluster run :
 eksctl create cluster
 After creating the cluster we will find that the cluster credentials were added in ~/.kube/config.
 
-Example of the Output :
-
-$ eksctl create cluster
-[ℹ]  eksctl version 0.6.0
-[ℹ]  using region us-west-2
-[ℹ]  setting availability zones to [us-west-2a us-west-2c us-west-2b]
-[ℹ]  subnets for us-west-2a - public:192.168.0.0/19 private:192.168.96.0/19
-[ℹ]  subnets for us-west-2c - public:192.168.32.0/19 private:192.168.128.0/19
-[ℹ]  subnets for us-west-2b - public:192.168.64.0/19 private:192.168.160.0/19
-[ℹ]  nodegroup "ng-98b3b83a" will use "ami-05ecac759c81e0b0c" [AmazonLinux2/1.11]
-[ℹ]  creating EKS cluster "floral-unicorn-1540567338" in "us-west-2" region
-[ℹ]  will create 2 separate CloudFormation stacks for cluster itself and the initial nodegroup
-[ℹ]  if you encounter any issues, check CloudFormation console or try 'eksctl utils describe-stacks --region=us-west-2 --cluster=floral-unicorn-1540567338'
-[ℹ]  2 sequential tasks: { create cluster control plane "floral-unicorn-1540567338", create nodegroup "ng-98b3b83a" }
-[ℹ]  building cluster stack "eksctl-floral-unicorn-1540567338-cluster"
-[ℹ]  deploying stack "eksctl-floral-unicorn-1540567338-cluster"
-[ℹ]  building nodegroup stack "eksctl-floral-unicorn-1540567338-nodegroup-ng-98b3b83a"
-[ℹ]  --nodes-min=2 was set automatically for nodegroup ng-98b3b83a
-[ℹ]  --nodes-max=2 was set automatically for nodegroup ng-98b3b83a
-[ℹ]  deploying stack "eksctl-floral-unicorn-1540567338-nodegroup-ng-98b3b83a"
-[✔]  all EKS cluster resource for "floral-unicorn-1540567338" had been created
-[✔]  saved kubeconfig as "~/.kube/config"
-[ℹ]  adding role "arn:aws:iam::376248598259:role/eksctl-ridiculous-sculpture-15547-NodeInstanceRole-1F3IHNVD03Z74" to auth ConfigMap
-[ℹ]  nodegroup "ng-98b3b83a" has 1 node(s)
-[ℹ]  node "ip-192-168-64-220.us-west-2.compute.internal" is not ready
-[ℹ]  waiting for at least 2 node(s) to become ready in "ng-98b3b83a"
-[ℹ]  nodegroup "ng-98b3b83a" has 2 node(s)
-[ℹ]  node "ip-192-168-64-220.us-west-2.compute.internal" is ready
-[ℹ]  node "ip-192-168-8-135.us-west-2.compute.internal" is ready
-[ℹ]  kubectl command should work with "~/.kube/config", try 'kubectl get nodes'
-[✔]  EKS cluster "floral-unicorn-1540567338" in "us-west-2" region is ready
-$
-
 Listing clusters:
 eksctl get cluster [--name=<name>][--region=<region>]
   
@@ -225,3 +192,275 @@ HELM OPERATOR FEATURES:
 11. Supports both Helm 2 and 3
 
 GET STARTED WITH THE HELM OPERATOR:
+
+ Helm charts :
+
+# helm init
+# helm repo add stable https://kubernetes-charts.storage.googleapis.com/
+
+# helm repo list
+# helm repo update
+
+ Tiller is the server program connected to helm
+
+# kubectl -n kube-system create serviceaccount tiller
+# kubectl create clusterrolebinding tiller --clusterrole cluster-admin -- serviceaccount=kube-system
+# helm init --service-account tiller
+# helm init --service-account tiller --upgrade
+# helm install stable/mysql
+
+In our case we are going to see these new arrivals (flux and helm operator) running in the cluster:
+
+$ kubectl get pods --all-namespaces
+NAMESPACE              NAME                                                      READY   STATUS                       RESTARTS   AGE
+flux                   flux-56b5664cdd-nfzx2                                     1/1     Running                      0          11m
+flux                   flux-helm-operator-6bc7c85bb5-l2nzn                       1/1     Running                      0          11m
+flux                   memcached-958f745c-dqllc                                  1/1     Running                      0          11m
+kube-system            aws-node-l49ct                                            1/1     Running                      0          14m
+kube-system            coredns-7d7755744b-4jkp6                                  1/1     Running                      0          21m
+kube-system            coredns-7d7755744b-ls5d9                                  1/1     Running                      0          21m
+kube-system            kube-proxy-wllff                                          1/1     Running                      0          14m
+
+To check podinfo:
+
+kubectl get service --namespace demo
+
+NAME      TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+podinfo   ClusterIP   10.100.255.220   <none>        9898/TCP   2m
+  
+Port forward the service:
+kubectl port-forward -n demo svc/podinfo 9898:9898
+
+Create a cluster with Gitops :
+
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: cluster-21
+  region: ap-south-1
+
+# other cluster config ...
+
+git:
+  repo:
+    url: "git@github.com:myorg/cluster-21.git"
+    branch: master
+    fluxPath: "flux/"
+    user: "gitops"
+    email: "gitops@myorg.com"
+  operator:
+    namespace: "flux"
+    withHelm: true
+  bootstrapProfile:
+    source: app-dev
+    revision: master
+
+This configuration will install FLUX and HELM and set up the repo.
+git@github.com:myorg/cluster-21.git so that any Kubernetes manifest added there will automatically be picked up and applied to your cluster by Flux. Once the cluster is created, the repo will also contain the manifests used to install Flux and Helm, so any further configuration can be done directly in a Gitops way.
+
+eksctl generate profile \
+        --cluster wonderful-wardrobe-1565767990 \
+        --profile-source https://github.com/weaveworks/eks-quickstart-app-dev.git \
+        --profile-path ~/dev/flux-get-started/cluster-config
+        
+eksctl generate profile requires:
+1. -- cluster:
+2. -- profile-source:
+3. --profile-path:
+
+Cluster creation  yaml file:
+
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: eks-cluster
+  region: ap-south-1
+
+nodeGroups:
+   - name: ng-1
+     instanceType: t2.micro
+     desiredCapacity: 4
+     ssh:
+           publicKeyName: sapikey
+           
+Entire Kubernetes Cluster setup:
+eksctl create cluster -f cluster.yaml
+
+eksctl get cluster
+aws eks update-kubeconfig --name <cluster name>
+kubectl get nodes
+
+Create  a  Wordpress website and host it in cloud Database using MYSQL DATABASE:
+
+Kubectl supports the management of Kubernetes objects using a kustomization file.
+Create a Secret by generators in kustomization.yaml file:
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+secretGenerator:
+	- name: mysql-pass
+	  literals:
+	       - password=redhat
+resources: 
+      	- mysqldeployment.yaml
+	- wordpressdeployment.yaml
+  
+SQL-DEPLOYMENT:
+The manifest file describes a single instance MYSQL Deployment. The MYSQL container mounts the persistent storage volume at /var/lib/mysql. MYSQL_ROOT_PASSWORD environment  variable sets the database password from the Secret.
+
+apiVersion: v1
+kind: Service
+metadata:
+      name: wordpress-mysql
+      labels:
+          app: wordpress
+spec:
+   ports:
+      - port: 3306
+   selector:
+        app: wordpress
+        tier: mysql
+   clusterIP: None
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+   name: mysql-pv-claim
+   labels: 
+       app: wordpress
+spec: 
+    accessModes:
+          - ReadWriteOnce
+    resources:
+         requests:
+             storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+    name: wordpress-mysql
+    labels:
+        app: wordpress
+spec:
+    selector:
+      matchLabels:
+          app: wordpress
+          tier: mysql
+    strategy:
+      type: Recreate
+    template:
+      metadata: 
+          labels: 
+              app: wordpress
+              tier: mysql
+      spec:
+          containers:
+          - image: mysql:5.6
+            name: mysql
+            env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                     name: mysql-pass
+                     key: password
+             ports:
+             - containerPort: 3306
+               name: mysql
+             volumeMounts:
+             - name: mysql-persistent-storage
+               mountPath: /var/lib/mysql
+          volumes:
+          - name: mysql-persistent-storage
+            persistentVolumeClaim:
+                  claimName: mysql-pv-claim
+
+
+WORDPRESS-DEPLOYMENT:
+
+The manifest file describes a single instance WORDPRESS-DEPLOYMENT. The WordPress container mounts the PersistentVolume at /var/www/html for website data files.
+The WORDPRESS_DB_HOST environment variable sets the name of the MySQL Service defined above, and WordPress will access the database by Service. 
+The WORDPRESS_DB_PASSWORD environment variable sets the database password from the Secret kustomize generated.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  labels:
+    app: wordpress
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: wordpress
+    tier: frontend
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wp-pv-claim
+  labels:
+    app: wordpress
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  labels:
+    app: wordpress
+spec:
+  selector:
+    matchLabels:
+      app: wordpress
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: wordpress
+        tier: frontend
+    spec:
+      containers:
+      - image: wordpress:4.8-apache
+        name: wordpress
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: wordpress-mysql
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-pass
+              key: password
+        ports:
+        - containerPort: 80
+          name: wordpress
+        volumeMounts:
+        - name: wordpress-persistent-storage
+          mountPath: /var/www/html
+      volumes:
+      - name: wordpress-persistent-storage
+        persistentVolumeClaim:
+          -claimName:wp-pv-claim
+
+All the environments can be set up by just using a single command.
+kubectl create -k .
+
+kubectl get deployments      //To verfy the deployments that are created
+
+kubectl get pv    //shows persisten volumes that are created
+
+kubectl get pvc   //shows persistent volume claims that are created
+
+Here External Load Balancer IP is used in this environment.
+
+
