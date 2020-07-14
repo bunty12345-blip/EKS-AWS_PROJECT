@@ -1,0 +1,75 @@
+
+The client should open a webview to :
+<server>/index.php/login/flow
+Set the OCS-APIREQUEST header to true.
+
+Get the login credentials:
+
+nc://login/server:<server>&user:<loginname>&password:<password>
+
+Also username can be fetched from OCS API endpoint:
+<server>/ocs/v1.php/cloud/user
+
+Convert to app password:
+
+curl -u  username:password -H 'OCS-APIRequest: true' https://cloud.flare.com/ocs/v2.php/core/getapppassword
+
+<?xml version="1.0"?>
+<ocs>
+	<meta>
+		<status>ok</status>
+		<statuscode>200</statuscode>
+		<message>OK</message>
+	</meta>
+	<data>
+		<apppassword>M1DqHwuZWwjEC3ku7gJsspR7bZXopwf01kj0XGppYVzEkGtbZBRaXlOUxFZdbgJ6Zk9OwG9x</apppassword>
+	</data>
+</ocs>
+
+Deleting app password:
+
+curl -u username:app-password -X DELETE -H 'OCS-APIREQUEST: true'  http://localhost/ocs/v2.php/core/apppassword
+
+The response should be a plain OCS response with status code 200
+
+<?xml version="1.0"?>
+<ocs>
+	<meta>
+		<data>
+			<status>ok</status>
+			<statuscode>200</statuscode>
+			<message>OK</message>
+		</data>
+	</meta>
+</ocs>
+
+Login flow v2:
+
+To initiate a login an annonymous POST request is done:
+
+curl -X POST https://cloud.example.com/index.php/login/v2
+
+json object code:
+
+{
+    "poll":{
+        "token":"mQUYQdffOSAMJYtm8pVpkOsVqXt5hglnuSpO5EMbgJMNEPFGaiDe8OUjvrJ2WcYcBSLgqynu9jaPFvZHMl83ybMvp6aDIDARjTFIBpRWod6p32fL9LIpIStvc6k8Wrs1",
+        "endpoint":"https:///cloud.flare.com\/login\/v2\/poll"
+    },
+    "login":"https:///cloud.flare.com\/login\/v2\/flow\/guyjGtcKPTKCi4epIRIupIexgJ8wNInMFSfHabACRPZUkmEaWZSM54bFkFuzWksbps7jmTFQjeskLpyJXyhpHlgK8sZBn9HXLXjohIx5iXgJKdOkkZTYCzUWHlsg3YFg"
+}
+
+URL login should be opened in default browser : where user will follow the login procedure:
+
+curl -X POST https://cloud.example.com/login/v2/poll -d "token=mQUYQdffOSAMJYtm8pVpkOsVqXt5hglnuSpO5EMbgJMNEPFGaiDe8OUjvrJ2WcYcBSLgqynu9jaPFvZHMl83ybMvp6aDIDARjTFIBpRWod6p32fL9LIpIStvc6k8Wrs1"
+
+This will return a 404 status code error until authentication is done.
+Once a 200 is returned it is another json object.
+
+{
+    "server":"https:///cloud.example.com",
+    "loginName":"username",
+    "appPassword":"yKTVA4zgxjfivy52WqD8kW3M2pKGQr6srmUXMipRdunxjPFripJn0GMfmtNOqOolYSuJ6sCN"
+}
+ 
+Use the server and provided credentials to connect. Note that only 200 will only be returned once.
