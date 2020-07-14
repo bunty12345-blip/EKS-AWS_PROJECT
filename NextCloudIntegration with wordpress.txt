@@ -1,0 +1,6 @@
+// Integration of Nextcloud with Wordpress:
+User table: wp_users
+Username column: user_login
+Password column: user_pass
+
+Hash algorithm : Unix (Crypt) or Portable PHP password
