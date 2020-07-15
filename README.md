@@ -1,5 +1,5 @@
 # EKS-AWS_PROJECT
-Deploying NextCloud and Wordpress application using AWS EKS Cloud and Helm Chart AutomationTest using Terraset
+Deploying NextCloud and Wordpress application using AWS EKS Cloud and Helm Chart AutomationTest using Terratest
 
 PROJECT TOPIC:
 Create a project Integrating all the technologys covered in EKS_AWS training include use of normal eks cluster , fargate cluster and use them to launch various applications 
